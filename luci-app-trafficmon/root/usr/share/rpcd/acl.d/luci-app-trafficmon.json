@@ -1,0 +1,10 @@
+{
+  "luci-app-trafficmon": {
+    "description": "Read trafficmon data and edit its UCI configuration",
+    "read": {
+      "file": { "/usr/libexec/trafficmon-luci *": [ "exec" ] },
+      "uci": [ "trafficmon" ]
+    },
+    "write": { "uci": [ "trafficmon" ] }
+  }
+}

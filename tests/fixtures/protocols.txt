@@ -1,0 +1,6 @@
+# stable-id name proto port
+10 HTTP tcp 80
+20 HTTPS tcp 443
+30 DNS tcp 53
+30 DNS udp 53
+40 NTP udp 123

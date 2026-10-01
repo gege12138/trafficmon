@@ -1,0 +1,56 @@
+#!/bin/sh
+# Read-only, parameter-whitelisted LuCI boundary. Never evaluates user input.
+set -eu
+export LC_ALL=C
+bad() { printf '{"error":"invalid request"}\n'; exit 2; }
+period() {
+	case "$1" in
+		current) ;;
+		????-??-??) case "$1" in *[!0-9-]*) bad ;; esac ;;
+		*) bad ;;
+	esac
+}
+order() { case "$1" in total|download|upload|connections) ;; *) bad ;; esac; }
+direction() { case "$1" in asc|desc) ;; *) bad ;; esac; }
+number() {
+	case "$1" in ''|*[!0-9]*) bad ;; esac
+	[ "$1" -le "$2" ] 2>/dev/null || bad
+}
+[ "$#" -ge 1 ] || bad
+command="$1"; shift
+case "$command" in
+	status|periods)
+		[ "$#" -eq 0 ] || bad
+		[ "$command" = status ] && exec /usr/sbin/trafficctl status
+		exec /usr/sbin/trafficctl list ;;
+	summary)
+		[ "$#" -eq 1 ] || bad
+		period "$1"
+		exec /usr/sbin/trafficctl json --group family --period "$1" --limit 2 ;;
+	devices)
+		[ "$#" -eq 6 ] || bad
+		period "$1"; order "$2"; direction "$3"; number "$4" 200
+		[ "$4" -ge 1 ] || bad
+		number "$5" 10000
+		[ "${#6}" -le 64 ] || bad
+		search="$6"
+		set -- /usr/sbin/trafficctl json --group device --period "$1" --order "$2" "--$3" --limit "$4" --offset "$5"
+		[ -z "$search" ] || set -- "$@" --search "$search"
+		exec "$@" ;;
+	detail|device)
+		[ "$#" -eq 2 ] || bad
+		period "$1"
+		[ "${#2}" -le 64 ] || bad
+		if [ "$command" = detail ]; then
+			exec /usr/sbin/trafficctl json --group device --group protocol --period "$1" --limit 300 --device-id "$2"
+		fi
+		exec /usr/sbin/trafficctl json --group device --period "$1" --limit 1 --device-id "$2" ;;
+	export-json|export-csv)
+		[ "$#" -eq 1 ] || bad
+		period "$1"
+		if [ "$command" = export-json ]; then
+			exec /usr/sbin/trafficctl json --period "$1" --limit 10000
+		fi
+		exec /usr/sbin/trafficctl csv --period "$1" --limit 10000 ;;
+	*) bad ;;
+esac

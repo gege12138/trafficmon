@@ -1,0 +1,41 @@
+#!/bin/sh
+
+[ "$ACTION" = ifup ] || [ "$ACTION" = ifupdate ] || [ "$ACTION" = ifdown ] || exit 0
+[ -n "$INTERFACE" ] || exit 0
+
+trafficmon_init="${TRAFFICMON_INIT_SCRIPT:-/etc/init.d/trafficmon}"
+signature_file="${TRAFFICMON_SIGNATURE_FILE:-/var/run/trafficmon-network-signature}"
+
+trafficmon_log()
+{
+	if [ -n "${TRAFFICMON_LOGGER:-}" ]; then
+		"$TRAFFICMON_LOGGER" "$@"
+	else
+		logger -t trafficmon "$@"
+	fi
+}
+
+old="$(cat "$signature_file" 2>/dev/null)"
+if ! new="$("$trafficmon_init" prefix_signature 2>/dev/null)" || [ -z "$new" ]; then
+	rm -f "$signature_file"
+	trafficmon_log "network $INTERFACE $ACTION made the local network signature unavailable; invalidated applied state"
+	exit 0
+fi
+[ "$old" != "$new" ] || exit 0
+for entry in $new; do
+	case " $old " in *" $entry "*) ;; *) trafficmon_log "local network signature added $entry" ;; esac
+done
+for entry in $old; do
+	case " $new " in *" $entry "*) ;; *) trafficmon_log "local network signature removed $entry" ;; esac
+done
+trafficmon_log "network $INTERFACE $ACTION changed local subnets or interfaces; reloading trafficmon only"
+if ! "$trafficmon_init" reload; then
+	rm -f "$signature_file"
+	trafficmon_log "trafficmon reload failed; invalidated applied local network signature"
+	exit 0
+fi
+signature_tmp="${signature_file}.$$"
+if ! printf '%s\n' "$new" > "$signature_tmp" || ! mv -f "$signature_tmp" "$signature_file"; then
+	rm -f "$signature_tmp" "$signature_file"
+	trafficmon_log "unable to persist applied local network signature; next event will retry"
+fi

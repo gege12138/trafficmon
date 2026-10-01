@@ -1,0 +1,7 @@
+/build*/
+/work/
+/artifacts/
+__pycache__/
+*.gcda
+*.gcno
+*.gcov

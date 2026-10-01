@@ -1,0 +1,27 @@
+{
+  "admin/status/trafficmon": {
+    "title": "Traffic Monitor", "order": 70,
+    "action": { "type": "firstchild" },
+    "depends": { "acl": [ "luci-app-trafficmon" ] }
+  },
+  "admin/status/trafficmon/overview": {
+    "title": "Overview", "order": 10,
+    "action": { "type": "view", "path": "trafficmon/overview" }
+  },
+  "admin/status/trafficmon/devices": {
+    "title": "Devices", "order": 20,
+    "action": { "type": "view", "path": "trafficmon/devices" }
+  },
+  "admin/status/trafficmon/detail": {
+    "action": { "type": "view", "path": "trafficmon/detail" },
+    "firstchild_ineligible": true
+  },
+  "admin/status/trafficmon/history": {
+    "title": "History", "order": 30,
+    "action": { "type": "view", "path": "trafficmon/history" }
+  },
+  "admin/status/trafficmon/settings": {
+    "title": "Settings / Status", "order": 40,
+    "action": { "type": "view", "path": "trafficmon/settings" }
+  }
+}

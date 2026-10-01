@@ -1,0 +1,6 @@
+#ifndef TRAFFICMON_VERSION_H
+#define TRAFFICMON_VERSION_H
+
+#define TRAFFICMON_VERSION "0.3.0"
+
+#endif
