@@ -1,15 +1,15 @@
 {
   "admin/status/trafficmon": {
-    "title": "Traffic Monitor", "order": 70,
+    "title": "流量监控", "order": 70,
     "action": { "type": "firstchild" },
     "depends": { "acl": [ "luci-app-trafficmon" ] }
   },
   "admin/status/trafficmon/overview": {
-    "title": "Overview", "order": 10,
+    "title": "概览", "order": 10,
     "action": { "type": "view", "path": "trafficmon/overview" }
   },
   "admin/status/trafficmon/devices": {
-    "title": "Devices", "order": 20,
+    "title": "设备", "order": 20,
     "action": { "type": "view", "path": "trafficmon/devices" }
   },
   "admin/status/trafficmon/detail": {
@@ -17,11 +17,15 @@
     "firstchild_ineligible": true
   },
   "admin/status/trafficmon/history": {
-    "title": "History", "order": 30,
+    "title": "历史记录", "order": 30,
     "action": { "type": "view", "path": "trafficmon/history" }
   },
   "admin/status/trafficmon/settings": {
-    "title": "Settings / Status", "order": 40,
+    "title": "设置 / 状态", "order": 50,
     "action": { "type": "view", "path": "trafficmon/settings" }
+  },
+  "admin/status/trafficmon/archive": {
+    "title": "归档管理", "order": 40,
+    "action": { "type": "view", "path": "trafficmon/archive" }
   }
 }

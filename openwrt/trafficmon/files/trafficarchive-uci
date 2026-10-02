@@ -1,0 +1,18 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+config_load trafficmon
+config_get_bool archive_enabled monthly enabled 0
+config_get archive_directory monthly archive_directory /var/lib/trafficmon/archive
+config_get state_directory monthly state_directory /var/lib/trafficmon/archive/state
+config_get journal_directory main journal_directory /var/lib/trafficmon/journal
+
+if [ "$archive_enabled" -ne 1 ]; then
+	exit 0
+fi
+
+exec /usr/sbin/trafficarchive \
+	--journal-dir "$journal_directory" \
+	--archive-dir "$archive_directory" \
+	--state-dir "$state_directory"

@@ -56,16 +56,17 @@ static bool tm_collector_request_dump(tm_collector *collector)
 }
 
 static void tm_collector_account(tm_collector *collector, const struct nlmsghdr *header,
-                                 bool new_connection)
+                                 bool new_connection, bool journal_event)
 {
     tm_conntrack_record record;
     tm_classified_delta classified;
+    time_t now;
     if (!tm_conntrack_parse_message((const uint8_t *)header, header->nlmsg_len, &record)) {
         collector->stats.netlink_parse_errors++;
         return;
     }
     record.flow.new_connection = new_connection;
-    if (!new_connection && record.flow.original.bytes == 0 &&
+    if (!new_connection && !journal_event && record.flow.original.bytes == 0 &&
         record.flow.original.packets == 0 && record.flow.reply.bytes == 0 &&
         record.flow.reply.packets == 0) {
         return;
@@ -73,18 +74,25 @@ static void tm_collector_account(tm_collector *collector, const struct nlmsghdr 
     switch (tm_classify_flow(&record.flow, collector->local_networks, collector->protocols,
                              &classified)) {
     case TM_CLASSIFY_ACCEPTED:
+        now = time(NULL);
         if (collector->identity != NULL &&
             tm_identity_neighbor_get(collector->identity, classified.delta.family,
-                                     &classified.delta.host_ip, time(NULL),
+                                     &classified.delta.host_ip, now,
                                      classified.delta.mac)) {
             classified.delta.mac_known = true;
         } else if (collector->identity != NULL) {
             (void)tm_identity_observe_unresolved(collector->identity,
                                                  classified.delta.family,
-                                                 &classified.delta.host_ip, time(NULL));
+                                                 &classified.delta.host_ip, now);
         }
         (void)tm_aggregator_add(collector->aggregator, &classified.delta,
                                classified.protocol_id);
+        if (journal_event && collector->journal != NULL) {
+            tm_journal_event event;
+            if (tm_journal_event_from_flow(&record.flow, &classified.delta, now, &event)) {
+                (void)tm_journal_enqueue(collector->journal, &event);
+            }
+        }
         break;
     case TM_CLASSIFY_INVALID:
         collector->stats.netlink_parse_errors++;
@@ -122,20 +130,20 @@ static void tm_collector_message(tm_collector *collector, const struct nlmsghdr 
     }
     command = (uint8_t)(header->nlmsg_type & 0xffU);
     if (dump_message && command == IPCTNL_MSG_CT_NEW) {
-        tm_collector_account(collector, header, false);
+        tm_collector_account(collector, header, false, false);
     } else if (command == IPCTNL_MSG_CT_NEW) {
         collector->stats.conntrack_new_events++;
-        tm_collector_account(collector, header, true);
+        tm_collector_account(collector, header, true, false);
     } else if (command == IPCTNL_MSG_CT_DELETE) {
         collector->stats.conntrack_destroy_events++;
-        tm_collector_account(collector, header, false);
+        tm_collector_account(collector, header, false, true);
     }
 }
 
 bool tm_collector_init(tm_collector *collector, tm_aggregator *aggregator,
                        const tm_subnet_set *local_networks,
-                       const tm_protocol_db *protocols, tm_identity *identity, size_t receive_buffer,
-                       unsigned int refresh_seconds)
+                       const tm_protocol_db *protocols, tm_identity *identity, tm_journal *journal,
+                       size_t receive_buffer, unsigned int refresh_seconds)
 {
     struct sockaddr_nl address;
     int actual_buffer = 0;
@@ -152,6 +160,7 @@ bool tm_collector_init(tm_collector *collector, tm_aggregator *aggregator,
     collector->local_networks = local_networks;
     collector->protocols = protocols;
     collector->identity = identity;
+    collector->journal = journal;
     collector->refresh_seconds = refresh_seconds == 0 ? 30 : refresh_seconds;
     if (receive_buffer == 0) {
         receive_buffer = TM_COLLECTOR_BUFFER_DEFAULT;
@@ -270,13 +279,14 @@ const char *tm_collector_state(const tm_collector *collector)
 
 bool tm_collector_init(tm_collector *collector, tm_aggregator *aggregator,
                        const tm_subnet_set *local_networks,
-                       const tm_protocol_db *protocols, tm_identity *identity, size_t receive_buffer,
-                       unsigned int refresh_seconds)
+                       const tm_protocol_db *protocols, tm_identity *identity, tm_journal *journal,
+                       size_t receive_buffer, unsigned int refresh_seconds)
 {
     (void)aggregator;
     (void)local_networks;
     (void)protocols;
     (void)identity;
+    (void)journal;
     (void)receive_buffer;
     (void)refresh_seconds;
     if (collector != NULL) {

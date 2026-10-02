@@ -1,0 +1,103 @@
+#!/bin/sh
+# Write-capable LuCI boundary. Accepts actions only; never accepts a path or month.
+set -eu
+export LC_ALL=C
+
+bad()
+{
+	printf '%s\n' '无效的归档操作请求。' >&2
+	exit 2
+}
+
+valid_month()
+{
+	case "$1" in
+		[0-9][0-9][0-9][0-9]-0[1-9]|[0-9][0-9][0-9][0-9]-1[0-2])
+			[ "${1%%-*}" -ne 0 ] 2>/dev/null ;;
+		*) return 1 ;;
+	esac
+}
+
+state_value()
+{
+	awk -F= -v key="$2" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$1"
+}
+
+latest_state()
+{
+	latest=''
+	latest_key=0
+	for candidate in "$state_directory"/archive-????-??.state; do
+		[ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+		base="${candidate##*/}"
+		candidate_month="${base#archive-}"
+		candidate_month="${candidate_month%.state}"
+		valid_month "$candidate_month" || continue
+		key="${candidate_month%-*}${candidate_month#*-}"
+		if [ "$key" -gt "$latest_key" ] 2>/dev/null; then
+			latest="$candidate"
+			latest_key="$key"
+		fi
+	done
+	[ -n "$latest" ] || return 1
+	month="$(state_value "$latest" month)"
+	state_basename="${latest##*/}"
+	file_month="${state_basename#archive-}"
+	file_month="${file_month%.state}"
+	[ "$month" = "$file_month" ] || return 1
+	valid_month "$month"
+}
+
+state_directory='/var/lib/trafficmon/archive/state'
+archive_directory='/var/lib/trafficmon/archive'
+archive_command='/usr/sbin/trafficarchive'
+upload_command='/usr/sbin/trafficupload-uci'
+if [ "${TRAFFICMON_LUCI_TESTING:-0}" = 1 ]; then
+	state_directory="${TM_LUCI_ARCHIVE_STATE_DIRECTORY:-$state_directory}"
+	archive_directory="${TM_LUCI_ARCHIVE_DIRECTORY:-$archive_directory}"
+	archive_command="${TM_LUCI_TRAFFICARCHIVE:-$archive_command}"
+	upload_command="${TM_LUCI_TRAFFICUPLOAD:-$upload_command}"
+fi
+
+[ "$#" -eq 1 ] || bad
+case "$1" in
+	run)
+		if "$archive_command" >/dev/null 2>&1; then
+			printf '{"success":true}\n'
+		else
+			printf '%s\n' '归档执行失败，请检查配置和系统日志。' >&2
+			exit 1
+		fi
+		;;
+	retry)
+		latest_state || {
+			printf '%s\n' '未找到可重新上传的归档状态。' >&2; exit 1;
+		}
+		[ "$(state_value "$latest" export_status)" = success ] || {
+			printf '%s\n' 'CSV 尚未成功导出，无法重新上传。' >&2; exit 1;
+		}
+		csv_file="$archive_directory/trafficmon-$month.csv"
+		[ -f "$csv_file" ] && [ ! -L "$csv_file" ] || {
+			printf '%s\n' '未找到对应的 CSV 归档文件。' >&2; exit 1;
+		}
+		if ! "$upload_command" "$csv_file" >/dev/null 2>&1; then
+			printf '%s\n' '重新上传失败，请检查 SMB 配置、网络和系统日志。' >&2
+			exit 1
+		fi
+		now="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || now=unknown
+		temporary_state="$latest.tmp.$$"
+		umask 077
+		if ! awk -F= -v now="$now" '
+			$1 == "upload_status" { print "upload_status=success"; next }
+			$1 == "updated_at" { print "updated_at=" now; next }
+			$1 == "error" { print "error=none"; next }
+			{ print }
+		' "$latest" > "$temporary_state" || ! mv -f "$temporary_state" "$latest"; then
+			rm -f "$temporary_state"
+			printf '%s\n' '上传已成功，但归档状态更新失败。' >&2
+			exit 1
+		fi
+		printf '{"success":true}\n'
+		;;
+	*) bad ;;
+esac

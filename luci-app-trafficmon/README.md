@@ -16,4 +16,11 @@ not a historical snapshot. Device address lists are capped at 32 by the backend.
 or high-frequency polling are used. No package removal script touches daemon configuration or
 databases.
 
+History also supports an inclusive date-range query for device or IP totals. The browser first
+uses the authenticated periods API and accepts a range only when available database periods
+cover it exactly from the selected start through the day after the selected end. It never slices
+a monthly or multi-day period. Each accepted period is queried through the existing CLI/IPC
+interface and the counters are merged in the LuCI layer; user-entered dates are never converted
+to database paths.
+
 Production deployment: NOT PERFORMED — intentionally deferred for remote-router safety.

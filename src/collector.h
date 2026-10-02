@@ -3,6 +3,7 @@
 
 #include "aggregator.h"
 #include "identity.h"
+#include "journal/journal.h"
 #include "protocol_db.h"
 #include "subnet.h"
 
@@ -35,14 +36,15 @@ typedef struct {
     const tm_subnet_set *local_networks;
     const tm_protocol_db *protocols;
     tm_identity *identity;
+    tm_journal *journal;
     tm_collector_stats stats;
     bool dump_active;
 } tm_collector;
 
 bool tm_collector_init(tm_collector *collector, tm_aggregator *aggregator,
                        const tm_subnet_set *local_networks,
-                       const tm_protocol_db *protocols, tm_identity *identity, size_t receive_buffer,
-                       unsigned int refresh_seconds);
+                       const tm_protocol_db *protocols, tm_identity *identity, tm_journal *journal,
+                       size_t receive_buffer, unsigned int refresh_seconds);
 void tm_collector_destroy(tm_collector *collector);
 bool tm_collector_tick(tm_collector *collector);
 const char *tm_collector_state(const tm_collector *collector);

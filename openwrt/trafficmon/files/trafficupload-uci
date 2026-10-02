@@ -1,0 +1,35 @@
+#!/bin/sh
+
+. /lib/functions.sh
+
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+	echo "usage: trafficupload-uci /path/to/archive.csv" >&2
+	exit 2
+fi
+
+config_load trafficmon
+config_get_bool smb_enabled archive enabled 0
+config_get smb_host archive host
+config_get smb_share archive share
+config_get smb_username archive username
+config_get smb_password archive password
+config_get smb_remote_dir archive remote_dir
+
+if [ "$smb_enabled" -ne 1 ]; then
+	logger -t trafficupload "SMB archive upload is disabled"
+	exit 1
+fi
+if [ -z "$smb_host" ] || [ -z "$smb_share" ] || [ -z "$smb_username" ] ||
+	[ -z "$smb_password" ]; then
+	logger -t trafficupload "SMB archive configuration is incomplete"
+	exit 1
+fi
+
+if ! printf '%s\n%s\n' "$smb_username" "$smb_password" |
+	/usr/sbin/trafficupload --host "$smb_host" --share "$smb_share" \
+		--remote-dir "$smb_remote_dir" --file "$1" --credentials-stdin; then
+	logger -t trafficupload "SMB archive upload failed"
+	exit 1
+fi
+
+logger -t trafficupload "SMB archive upload completed"

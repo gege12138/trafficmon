@@ -6,7 +6,7 @@ bad() { printf '{"error":"invalid request"}\n'; exit 2; }
 period() {
 	case "$1" in
 		current) ;;
-		????-??-??) case "$1" in *[!0-9-]*) bad ;; esac ;;
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
 		*) bad ;;
 	esac
 }
@@ -16,9 +16,71 @@ number() {
 	case "$1" in ''|*[!0-9]*) bad ;; esac
 	[ "$1" -le "$2" ] 2>/dev/null || bad
 }
+valid_month() {
+	case "$1" in
+		[0-9][0-9][0-9][0-9]-0[1-9]|[0-9][0-9][0-9][0-9]-1[0-2])
+			[ "${1%%-*}" -ne 0 ] 2>/dev/null ;;
+		*) return 1 ;;
+	esac
+}
+state_value() {
+	awk -F= -v key="$2" '$1 == key { print substr($0, index($0, "=") + 1); exit }' "$1"
+}
+archive_status() {
+	state_directory='/var/lib/trafficmon/archive/state'
+	if [ "${TRAFFICMON_LUCI_TESTING:-0}" = 1 ]; then
+		state_directory="${TM_LUCI_ARCHIVE_STATE_DIRECTORY:-$state_directory}"
+	fi
+	latest=''
+	latest_key=0
+	for candidate in "$state_directory"/archive-????-??.state; do
+		[ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+		base="${candidate##*/}"
+		month="${base#archive-}"
+		month="${month%.state}"
+		valid_month "$month" || continue
+		key="${month%-*}${month#*-}"
+		if [ "$key" -gt "$latest_key" ] 2>/dev/null; then
+			latest="$candidate"
+			latest_key="$key"
+		fi
+	done
+	if [ -z "$latest" ]; then
+		printf '{"available":false}\n'
+		return
+	fi
+	[ "$(wc -c < "$latest")" -le 4096 ] 2>/dev/null || {
+		printf '{"available":false,"error":"invalid_state"}\n'; return;
+	}
+	file_month="${latest##*/archive-}"
+	file_month="${file_month%.state}"
+	month="$(state_value "$latest" month)"
+	export_status="$(state_value "$latest" export_status)"
+	upload_status="$(state_value "$latest" upload_status)"
+	updated_at="$(state_value "$latest" updated_at)"
+	error="$(state_value "$latest" error)"
+	[ "$month" = "$file_month" ] && valid_month "$month" || {
+		printf '{"available":false,"error":"invalid_state"}\n'; return;
+	}
+	case "$export_status" in success|failed|pending|not_attempted) ;; *)
+		printf '{"available":false,"error":"invalid_state"}\n'; return ;; esac
+	case "$upload_status" in success|failed|pending|not_attempted) ;; *)
+		printf '{"available":false,"error":"invalid_state"}\n'; return ;; esac
+	case "$updated_at" in
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z|unknown) ;;
+		*) printf '{"available":false,"error":"invalid_state"}\n'; return ;;
+	esac
+	case "$error" in ''|*[!A-Za-z0-9_.:-]*)
+		printf '{"available":false,"error":"invalid_state"}\n'; return ;; esac
+	printf '{"available":true,"month":"%s","export_status":"%s","upload_status":"%s","updated_at":"%s","error":"%s"}\n' \
+		"$month" "$export_status" "$upload_status" "$updated_at" "$error"
+}
 [ "$#" -ge 1 ] || bad
 command="$1"; shift
 case "$command" in
+	archive-status)
+		[ "$#" -eq 0 ] || bad
+		archive_status ;;
 	status|periods)
 		[ "$#" -eq 0 ] || bad
 		[ "$command" = status ] && exec /usr/sbin/trafficctl status
@@ -31,12 +93,18 @@ case "$command" in
 		[ "$#" -eq 6 ] || bad
 		period "$1"; order "$2"; direction "$3"; number "$4" 200
 		[ "$4" -ge 1 ] || bad
-		number "$5" 10000
+		number "$5" 1000000
 		[ "${#6}" -le 64 ] || bad
 		search="$6"
 		set -- /usr/sbin/trafficctl json --group device --period "$1" --order "$2" "--$3" --limit "$4" --offset "$5"
 		[ -z "$search" ] || set -- "$@" --search "$search"
 		exec "$@" ;;
+	ips)
+		[ "$#" -eq 3 ] || bad
+		period "$1"; number "$2" 200
+		[ "$2" -ge 1 ] || bad
+		number "$3" 1000000
+		exec /usr/sbin/trafficctl json --group ip --period "$1" --order total --desc --limit "$2" --offset "$3" ;;
 	detail|device)
 		[ "$#" -eq 2 ] || bad
 		period "$1"

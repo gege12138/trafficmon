@@ -1,0 +1,33 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=05
+
+cron_file="${TM_CRON_FILE:-/etc/crontabs/root}"
+cron_service="${TM_CRON_SERVICE:-/etc/init.d/cron}"
+cron_line='17 3 * * * /usr/sbin/trafficarchive-uci'
+
+reload_cron()
+{
+	"$cron_service" restart >/dev/null 2>&1 || true
+}
+
+start()
+{
+	mkdir -p "$(dirname "$cron_file")"
+	touch "$cron_file"
+	if ! grep -Fqx "$cron_line" "$cron_file"; then
+		printf '%s\n' "$cron_line" >> "$cron_file"
+	fi
+	reload_cron
+}
+
+stop()
+{
+	temporary="${cron_file}.trafficarchive.$$"
+	if [ -f "$cron_file" ]; then
+		grep -Fvx "$cron_line" "$cron_file" > "$temporary" || true
+		mv -f "$temporary" "$cron_file"
+	fi
+	reload_cron
+}

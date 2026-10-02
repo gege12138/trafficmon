@@ -1,0 +1,192 @@
+#!/bin/sh
+
+set -u
+
+trafficexport_command="${TM_TRAFFICEXPORT:-/usr/sbin/trafficexport}"
+trafficupload_command="${TM_TRAFFICUPLOAD:-/usr/sbin/trafficupload-uci}"
+logger_command="${TM_LOGGER:-logger}"
+journal_directory='/var/lib/trafficmon/journal'
+archive_directory='/var/lib/trafficmon/archive'
+state_directory='/var/lib/trafficmon/archive/state'
+month=''
+lock_directory=''
+
+usage()
+{
+	echo "usage: trafficarchive [--month YYYY-MM] [--journal-dir DIR] [--archive-dir DIR] [--state-dir DIR]" >&2
+}
+
+log_message()
+{
+	echo "trafficarchive: $*" >&2
+	if command -v "$logger_command" >/dev/null 2>&1; then
+		"$logger_command" -t trafficarchive "$*"
+	fi
+}
+
+valid_month()
+{
+	case "$1" in
+		[0-9][0-9][0-9][0-9]-0[1-9]|[0-9][0-9][0-9][0-9]-1[0-2])
+			[ "${1%%-*}" -ne 0 ]
+			return
+			;;
+		*) return 1 ;;
+	esac
+}
+
+previous_month()
+{
+	year="$(date +%Y)" || return 1
+	current_month="$(date +%m)" || return 1
+	case "$year:$current_month" in
+		*[!0-9:]*|'':*) return 1 ;;
+	esac
+	current_month="${current_month#0}"
+	if [ "$current_month" -eq 1 ]; then
+		year=$((year - 1))
+		current_month=12
+	else
+		current_month=$((current_month - 1))
+	fi
+	printf '%04d-%02d\n' "$year" "$current_month"
+}
+
+write_state()
+{
+	export_status="$1"
+	upload_status="$2"
+	error_reason="$3"
+	temporary_state="${state_file}.tmp.$$"
+	timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || timestamp='unknown'
+	umask 077
+	if ! {
+		printf 'version=1\n'
+		printf 'month=%s\n' "$month"
+		printf 'export_status=%s\n' "$export_status"
+		printf 'upload_status=%s\n' "$upload_status"
+		printf 'updated_at=%s\n' "$timestamp"
+		printf 'error=%s\n' "$error_reason"
+	} > "$temporary_state" || ! mv -f "$temporary_state" "$state_file"; then
+		rm -f "$temporary_state"
+		log_message "unable to persist state for $month"
+		return 1
+	fi
+	return 0
+}
+
+cleanup()
+{
+	rm -f "${temporary_csv:-}"
+	if [ -n "$lock_directory" ]; then
+		rm -f "$lock_directory/pid"
+		rmdir "$lock_directory" 2>/dev/null || true
+	fi
+}
+
+while [ "$#" -gt 0 ]; do
+	case "$1" in
+		--month|--journal-dir|--archive-dir|--state-dir)
+			[ "$#" -ge 2 ] || { usage; exit 2; }
+			option="$1"
+			value="$2"
+			shift 2
+			case "$option" in
+				--month) month="$value" ;;
+				--journal-dir) journal_directory="$value" ;;
+				--archive-dir) archive_directory="$value" ;;
+				--state-dir) state_directory="$value" ;;
+			esac
+			;;
+		*) usage; exit 2 ;;
+	esac
+done
+
+[ -n "$month" ] || month="$(previous_month)" || {
+	log_message 'unable to calculate previous month'
+	exit 1
+}
+valid_month "$month" || {
+	log_message "invalid month: $month"
+	exit 2
+}
+if [ -z "$journal_directory" ] || [ -z "$archive_directory" ] || [ -z "$state_directory" ]; then
+	log_message 'invalid archive directory configuration'
+	exit 2
+fi
+
+if ! mkdir -p "$archive_directory" "$state_directory"; then
+	log_message 'unable to create archive or state directory'
+	exit 1
+fi
+
+state_file="$state_directory/archive-$month.state"
+csv_file="$archive_directory/trafficmon-$month.csv"
+temporary_csv="$archive_directory/.trafficmon-$month.csv.tmp.$$"
+lock_directory="$state_directory/.archive-$month.lock"
+if ! mkdir "$lock_directory" 2>/dev/null; then
+	existing_pid=''
+	[ ! -f "$lock_directory/pid" ] || existing_pid="$(cat "$lock_directory/pid")"
+	case "$existing_pid" in
+		''|*[!0-9]*) ;;
+		*)
+			if kill -0 "$existing_pid" 2>/dev/null; then
+				log_message "archive for $month is already running"
+				exit 75
+			fi
+			;;
+	esac
+	rm -f "$lock_directory/pid"
+	if ! rmdir "$lock_directory" 2>/dev/null || ! mkdir "$lock_directory" 2>/dev/null; then
+		log_message "archive for $month is already running"
+		exit 75
+	fi
+fi
+printf '%s\n' "$$" > "$lock_directory/pid"
+trap cleanup EXIT
+trap 'cleanup; exit 1' HUP INT TERM
+
+if [ -f "$state_file" ] && grep -qx 'upload_status=success' "$state_file"; then
+	log_message "archive for $month is already complete"
+	exit 0
+fi
+
+export_complete=0
+if [ -f "$state_file" ] && [ -f "$csv_file" ] &&
+	grep -qx 'export_status=success' "$state_file"; then
+	export_complete=1
+fi
+
+if [ "$export_complete" -ne 1 ]; then
+	rm -f "$temporary_csv"
+	"$trafficexport_command" --journal-dir "$journal_directory" --month "$month" \
+		--output "$temporary_csv"
+	export_result=$?
+	if [ "$export_result" -ne 0 ]; then
+		write_state failed not_attempted "export_failed_$export_result" || true
+		log_message "CSV export failed for $month"
+		exit 1
+	fi
+	if ! mv -f "$temporary_csv" "$csv_file"; then
+		write_state failed not_attempted csv_publish_failed || true
+		log_message "unable to publish CSV for $month"
+		exit 1
+	fi
+	if ! write_state success pending none; then
+		exit 1
+	fi
+fi
+
+"$trafficupload_command" "$csv_file"
+upload_result=$?
+if [ "$upload_result" -ne 0 ]; then
+	write_state success failed "upload_failed_$upload_result" || true
+	log_message "SMB upload failed for $month"
+	exit 1
+fi
+
+if ! write_state success success none; then
+	exit 1
+fi
+log_message "archive for $month completed"
+exit 0

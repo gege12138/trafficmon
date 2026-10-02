@@ -5,6 +5,7 @@
 #include "collector.h"
 #include "ipc_protocol.h"
 #include "ipc_server.h"
+#include "journal/journal.h"
 #include "period_store.h"
 #include "protocol_db.h"
 #include "query.h"
@@ -26,6 +27,7 @@ typedef struct {
     const char *socket_path;
     const char *period_rule;
     const char *protocol_database;
+    const char *journal_directory;
     tm_date current_date;
     size_t record_limit;
     size_t generations;
@@ -47,6 +49,7 @@ typedef struct {
     tm_protocol_db protocols;
     tm_collector collector;
     tm_identity identity;
+    tm_journal journal;
     volatile sig_atomic_t stop_requested;
     time_t started_at;
     time_t next_commit;
@@ -128,6 +131,8 @@ static bool tm_parse_options(int argc, char **argv, bool allow_test_hooks,
             options->period_rule = argv[++index];
         } else if (strcmp(argument, "--protocol-db") == 0) {
             options->protocol_database = argv[++index];
+        } else if (strcmp(argument, "--journal-dir") == 0 && argv[index + 1][0] != '\0') {
+            options->journal_directory = argv[++index];
         } else if (strcmp(argument, "--date") == 0) {
             if (!allow_test_hooks || !tm_date_parse(argv[++index], &options->current_date)) {
                 return false;
@@ -560,6 +565,7 @@ static bool tm_daemon_tick(void *context)
         return false;
     }
     tm_identity_refresh_hostnames(&state->identity, now);
+    tm_journal_tick(&state->journal, now);
     if (now >= state->next_period_check) {
         tm_date today;
         bool rolled_over = false;
@@ -616,6 +622,7 @@ int tm_daemon_main(int argc, char **argv, bool allow_test_hooks)
         fprintf(stderr,
                 "usage: trafficmon [--database-dir DIR] [--socket PATH] [--period-rule RULE] "
                 "[--protocol-db FILE] [--limit N] [--generations N] "
+                "[--journal-dir DIR] "
                 "[--local-subnet CIDR] [--local-interface NAME] "
                 "[--static-hostnames FILE] [--dhcp-leases FILE] "
                 "[--refresh-seconds N] [--netlink-buffer BYTES] "
@@ -646,8 +653,14 @@ int tm_daemon_main(int argc, char **argv, bool allow_test_hooks)
         fprintf(stderr, "trafficmon: unable to initialize database\n");
         return 1;
     }
+    if (options.journal_directory != NULL &&
+        !tm_journal_init(&state.journal, options.journal_directory)) {
+        fprintf(stderr, "trafficmon: journal initialization failed for %s; continuing disabled\n",
+                options.journal_directory);
+    }
     if (!tm_identity_init(&state.identity, &options.local_networks,
                           options.static_hostnames, options.dhcp_leases)) {
+        tm_journal_destroy(&state.journal);
         tm_period_store_destroy(&state.store);
         return 1;
     }
@@ -657,6 +670,7 @@ int tm_daemon_main(int argc, char **argv, bool allow_test_hooks)
             fprintf(stderr, "trafficmon: invalid local interface: %s\n",
                     options.local_interfaces[index]);
             tm_identity_destroy(&state.identity);
+            tm_journal_destroy(&state.journal);
             tm_period_store_destroy(&state.store);
             return 1;
         }
@@ -666,9 +680,11 @@ int tm_daemon_main(int argc, char **argv, bool allow_test_hooks)
     if (options.local_networks.count != 0 &&
         !tm_collector_init(&state.collector, &state.store.aggregator,
                            &options.local_networks, &state.protocols, &state.identity,
+                           state.journal.enabled ? &state.journal : NULL,
                            options.netlink_receive_buffer, options.refresh_seconds)) {
         fprintf(stderr, "trafficmon: unable to initialize conntrack collector\n");
         tm_identity_destroy(&state.identity);
+        tm_journal_destroy(&state.journal);
         tm_period_store_destroy(&state.store);
         return 1;
     }
@@ -677,9 +693,10 @@ int tm_daemon_main(int argc, char **argv, bool allow_test_hooks)
     if (state.debug) {
         fprintf(stderr,
                 "trafficmon: database=%s socket=%s records=%zu generations=%zu "
-                "commit=%u seconds local-subnets=%zu\n",
+                "commit=%u seconds local-subnets=%zu journal=%s\n",
                 options.database_directory, options.socket_path, options.record_limit,
-                options.generations, options.commit_seconds, options.local_networks.count);
+                options.generations, options.commit_seconds, options.local_networks.count,
+                state.journal.enabled ? state.journal.directory : "disabled");
     }
     tm_signal_stop_flag = &state.stop_requested;
 #ifdef _WIN32
@@ -705,6 +722,7 @@ int tm_daemon_main(int argc, char **argv, bool allow_test_hooks)
     }
     tm_signal_stop_flag = NULL;
     tm_collector_destroy(&state.collector);
+    tm_journal_destroy(&state.journal);
     tm_identity_destroy(&state.identity);
     tm_period_store_destroy(&state.store);
     fprintf(stderr, "trafficmon: stopped%s\n", server_result ? " cleanly" : " with errors");

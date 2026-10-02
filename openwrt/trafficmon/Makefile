@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=trafficmon
 PKG_VERSION:=0.3.0
-PKG_RELEASE:=9
+PKG_RELEASE:=14
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
@@ -39,16 +39,24 @@ define Build/Prepare
 	$(CP) ./source/LICENSE $(PKG_BUILD_DIR)/
 	$(CP) ./source/src $(PKG_BUILD_DIR)/
 	$(CP) ./source/cli $(PKG_BUILD_DIR)/
+	$(CP) ./source/scripts $(PKG_BUILD_DIR)/
 endef
 
 define Package/trafficmon/install
 	$(INSTALL_DIR) $(1)/usr/sbin
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/trafficmon $(1)/usr/sbin/trafficmon
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/trafficctl $(1)/usr/sbin/trafficctl
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/trafficexport $(1)/usr/sbin/trafficexport
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/trafficretention $(1)/usr/sbin/trafficretention
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/trafficupload $(1)/usr/sbin/trafficupload
+	$(INSTALL_BIN) ./files/trafficupload-uci $(1)/usr/sbin/trafficupload-uci
+	$(INSTALL_BIN) ./source/scripts/trafficarchive $(1)/usr/sbin/trafficarchive
+	$(INSTALL_BIN) ./files/trafficarchive-uci $(1)/usr/sbin/trafficarchive-uci
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/trafficmon.config $(1)/etc/config/trafficmon
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/trafficmon.init $(1)/etc/init.d/trafficmon
+	$(INSTALL_BIN) ./files/trafficarchive.init $(1)/etc/init.d/trafficarchive
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
 	$(INSTALL_BIN) ./files/95-trafficmon $(1)/etc/hotplug.d/iface/95-trafficmon
 	$(INSTALL_DIR) $(1)/usr/lib/trafficmon

@@ -18,16 +18,20 @@ add_library(trafficmon_core STATIC
     src/database.c
     src/device_query.c
     src/flow.c
+    src/exporter/exporter.c
     src/identity.c
     src/ipc_protocol.c
     src/ipc_client.c
     src/ipc_server.c
     src/ipc_socket.c
     src/json_writer.c
+    src/journal/journal.c
     src/period.c
     src/period_store.c
     src/protocol_db.c
     src/query.c
+    src/retention/retention.c
+    src/smb/smb.c
     src/storage.c
     src/subnet.c
     src/text_buffer.c
@@ -49,7 +53,18 @@ target_link_libraries(trafficmon PRIVATE trafficmon_core)
 add_executable(trafficctl cli/trafficctl.c src/cli.c)
 target_link_libraries(trafficctl PRIVATE trafficmon_core)
 
-install(TARGETS trafficmon trafficctl RUNTIME DESTINATION bin)
+add_executable(trafficexport cli/trafficexport.c)
+target_link_libraries(trafficexport PRIVATE trafficmon_core)
+
+add_executable(trafficretention cli/trafficretention.c)
+target_link_libraries(trafficretention PRIVATE trafficmon_core)
+
+add_executable(trafficupload cli/trafficupload.c)
+target_link_libraries(trafficupload PRIVATE trafficmon_core)
+
+install(TARGETS trafficmon trafficctl trafficexport trafficretention trafficupload
+        RUNTIME DESTINATION bin)
+install(PROGRAMS scripts/trafficarchive DESTINATION bin)
 
 if(MSVC)
     set(TRAFFICMON_WARNING_FLAGS /W4 /WX)
@@ -60,6 +75,9 @@ endif()
 target_compile_options(trafficmon_core PRIVATE ${TRAFFICMON_WARNING_FLAGS})
 target_compile_options(trafficmon PRIVATE ${TRAFFICMON_WARNING_FLAGS})
 target_compile_options(trafficctl PRIVATE ${TRAFFICMON_WARNING_FLAGS})
+target_compile_options(trafficexport PRIVATE ${TRAFFICMON_WARNING_FLAGS})
+target_compile_options(trafficretention PRIVATE ${TRAFFICMON_WARNING_FLAGS})
+target_compile_options(trafficupload PRIVATE ${TRAFFICMON_WARNING_FLAGS})
 
 if(WIN32)
     target_link_libraries(trafficmon_core PUBLIC ws2_32)
@@ -89,6 +107,9 @@ if(WIN32 AND CMAKE_C_COMPILER_ID MATCHES "Clang" AND TRAFFICMON_ENABLE_SANITIZER
     endfunction()
     tm_copy_sanitizer_runtime(trafficmon)
     tm_copy_sanitizer_runtime(trafficctl)
+    tm_copy_sanitizer_runtime(trafficexport)
+    tm_copy_sanitizer_runtime(trafficretention)
+    tm_copy_sanitizer_runtime(trafficupload)
 endif()
 
 include(CTest)
@@ -112,6 +133,12 @@ if(BUILD_TESTING)
         target_link_options(trafficmon_test PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
         target_compile_options(trafficctl_test PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
         target_link_options(trafficctl_test PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
+        target_compile_options(trafficexport PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
+        target_link_options(trafficexport PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
+        target_compile_options(trafficretention PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
+        target_link_options(trafficretention PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
+        target_compile_options(trafficupload PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
+        target_link_options(trafficupload PRIVATE ${TRAFFICMON_SANITIZER_FLAGS})
     endif()
     if(COMMAND tm_copy_sanitizer_runtime)
         tm_copy_sanitizer_runtime(trafficmon_test)

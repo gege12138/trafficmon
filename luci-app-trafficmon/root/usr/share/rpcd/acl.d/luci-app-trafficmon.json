@@ -5,6 +5,9 @@
       "file": { "/usr/libexec/trafficmon-luci *": [ "exec" ] },
       "uci": [ "trafficmon" ]
     },
-    "write": { "uci": [ "trafficmon" ] }
+    "write": {
+      "file": { "/usr/libexec/trafficmon-luci-archive *": [ "exec" ] },
+      "uci": [ "trafficmon" ]
+    }
   }
 }

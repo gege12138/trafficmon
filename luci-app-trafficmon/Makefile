@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-trafficmon
-PKG_VERSION:=0.4.0
-PKG_RELEASE:=5
+PKG_VERSION:=0.6.0
+PKG_RELEASE:=1
 PKG_LICENSE:=MIT
 PKGARCH:=all
 
@@ -17,7 +17,7 @@ define Package/luci-app-trafficmon
 endef
 
 define Package/luci-app-trafficmon/description
- Authenticated LuCI pages for trafficmon status, devices, history, and settings.
+ Authenticated LuCI pages for trafficmon status, devices, history, archive, and settings.
 endef
 
 define Build/Compile
@@ -29,6 +29,7 @@ define Package/luci-app-trafficmon/install
 	$(CP) ./htdocs/* $(1)/www/
 	$(INSTALL_DIR) $(1)/usr/libexec
 	$(INSTALL_BIN) ./root/usr/libexec/trafficmon-luci $(1)/usr/libexec/trafficmon-luci
+	$(INSTALL_BIN) ./root/usr/libexec/trafficmon-luci-archive $(1)/usr/libexec/trafficmon-luci-archive
 endef
 
 # Match the ImmortalWrt 24.10 LuCI feed's package lifecycle hook. This package

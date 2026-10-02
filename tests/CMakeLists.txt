@@ -15,18 +15,28 @@ add_executable(trafficmon_tests
     integration/test_oracle_vectors.c
     unit/test_aggregator.c
     unit/test_database.c
+    unit/test_exporter.c
     unit/test_flow.c
     unit/test_period.c
     unit/test_period_store.c
     unit/test_ipc_protocol.c
     unit/test_identity.c
+    unit/test_journal.c
     unit/test_protocol_db.c
     unit/test_query.c
+    unit/test_retention.c
     unit/test_subnet.c
     unit/test_writers.c
 )
 if(UNIX AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    target_sources(trafficmon_tests PRIVATE unit/test_conntrack_parser.c)
+    add_executable(fake_smbclient helpers/fake_smbclient.c)
+    target_compile_options(fake_smbclient PRIVATE ${TRAFFICMON_WARNING_FLAGS})
+    target_compile_definitions(trafficmon_tests PRIVATE
+        _POSIX_C_SOURCE=200809L
+        TM_FAKE_SMBCLIENT_PATH="$<TARGET_FILE:fake_smbclient>"
+        TM_HAVE_SMB_TESTS=1)
+    add_dependencies(trafficmon_tests fake_smbclient)
+    target_sources(trafficmon_tests PRIVATE unit/test_conntrack_parser.c unit/test_smb.c)
     target_compile_definitions(trafficmon_tests PRIVATE TM_HAVE_CONNTRACK_TESTS=1)
 endif()
 target_include_directories(trafficmon_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
@@ -62,11 +72,34 @@ if(TRAFFICMON_NODE_EXECUTABLE)
              ${CMAKE_CURRENT_SOURCE_DIR}/ui/test_pagination.js)
     add_test(NAME luci_detail_settings COMMAND ${TRAFFICMON_NODE_EXECUTABLE}
              ${CMAKE_CURRENT_SOURCE_DIR}/ui/test_detail_settings.js)
-    set_tests_properties(luci_xss luci_pagination luci_detail_settings
+    add_test(NAME luci_history_range COMMAND ${TRAFFICMON_NODE_EXECUTABLE}
+             ${CMAKE_CURRENT_SOURCE_DIR}/ui/test_history_range.js)
+    add_test(NAME luci_archive COMMAND ${TRAFFICMON_NODE_EXECUTABLE}
+             ${CMAKE_CURRENT_SOURCE_DIR}/ui/test_archive.js)
+    set_tests_properties(luci_xss luci_pagination luci_detail_settings luci_history_range luci_archive
                          PROPERTIES LABELS "luci;unit")
 endif()
 
 if(UNIX)
+    add_test(NAME luci_archive_integration
+             COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/test_luci_archive.sh
+                     ${CMAKE_SOURCE_DIR}/luci-app-trafficmon/root/usr/libexec/trafficmon-luci
+                     ${CMAKE_SOURCE_DIR}/luci-app-trafficmon/root/usr/libexec/trafficmon-luci-archive
+                     ${CMAKE_CURRENT_BINARY_DIR}/luci-archive)
+    set_tests_properties(luci_archive_integration PROPERTIES
+                         LABELS "integration;luci;openwrt")
+    add_test(NAME archive_cron
+             COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/test_archive_cron.sh
+                     ${CMAKE_SOURCE_DIR}/openwrt/trafficmon/files/trafficarchive.init
+                     ${CMAKE_CURRENT_BINARY_DIR}/archive-cron)
+    set_tests_properties(archive_cron PROPERTIES
+                         LABELS "integration;openwrt")
+    add_test(NAME archive_manager
+             COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/test_archive_manager.sh
+                     ${CMAKE_SOURCE_DIR}/scripts/trafficarchive
+                     ${CMAKE_CURRENT_BINARY_DIR}/archive-manager)
+    set_tests_properties(archive_manager PROPERTIES
+                         LABELS "integration;openwrt")
     add_test(NAME network_signature
              COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/integration/test_network_signature.sh
                      ${CMAKE_SOURCE_DIR}/openwrt/trafficmon/files/network-signature.sh
